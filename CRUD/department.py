@@ -1,99 +1,100 @@
-from Config_Database.config import app, conp
-from Error.error import not_found
+from Config_Database.config import app, conp, cursor
 from flask import jsonify, request
 from pymysql import cursors
-from re import match
+from Authentication.Authentication import token_required
+from Error.error import server_error
 
 @app.route('/create_department', methods=['POST'])
-def create_department():
+@token_required
+def create_department(data):
     try:
-        msg = ''
         json = request.json
         dep_name = json['dep_name']
-        dep_level = json['dep_level']
-        if dep_name and dep_level and request.method == 'POST':
-            cursor = conp.cursor(cursors.DictCursor)
-            sqlQuery = "SELECT dep_name, dep_level FROM department WHERE dep_name = %s"
-            bindData = (dep_name,)
+        if dep_name:
+            sqlQuery = "SELECT dep_name FROM department WHERE dep_name = %s"
+            bindData = (dep_name)
             cursor.execute(sqlQuery, bindData)
-            province = cursor.fetchone()
-            if province:
-                msg = 'ມີຂໍ້ມູນແລ້ວ'
-            elif not match(r'[ກ-ຮ]+', dep_name):
-                msg = 'ໃສ່ໄດ້ແຕ່ ກ-ຮ'
-            elif not match(r'[0-9]+', dep_level):
-                msg = 'ໃສໄດ້ແຕ່ 1-9'
+            row = cursor.fetchone()
+            if row:
+                respone = jsonify({'message': 'ມີຂໍ້ມູນແລ້ວ'}), 405
             else:
-                cursor.execute('INSERT INTO department(dep_name, dep_level) VALUES(%s, %s)', (dep_name, dep_level))
+                cursor.execute('INSERT INTO department(dep_name) VALUES(%s)', (dep_name, ))
                 conp.commit()
-                msg = 'You have successfully department !'
-            # respone = jsonify('Department added successfully!')
-            # respone.status_code = 200
-            # return respone
-        elif request.method == 'POST':
-            msg = 'Please fill!'
-        return msg
-    except Exception as e:
-        return not_found()
+                respone = jsonify({'message':'ເພີ່ມຂໍ້ມູນສຳເລັດ', 'status':'ok'}), 201
+            return respone
+        else:
+            respone = jsonify({'message':'ຂໍ້ມູນບໍ່ຄົບຖ້ວນ'}), 405
+        return respone
+    except Exception:
+        return server_error()
 
-@app.route('/department', methods=['GET'])
-def department():
+@app.route('/departments', methods=['GET'])
+@token_required
+def department(data):
     try:
-        cursor = conp.cursor(cursors.DictCursor)
-        cursor.execute("SELECT dep_name, dep_create_date, dep_level FROM department")
+        cursor.execute("SELECT dep_ID, dep_name, dep_create_date FROM department")
         depRows = cursor.fetchall()
-        respone = jsonify(depRows)
-        respone.status_code = 200
+        respone = jsonify(depRows), 200
         return respone
-    except Exception as e:
-        print(e)
-        return not_found()
+    except Exception:
+        return server_error()
 
-@app.route('/department/<int:dep_id>', methods=['GET'])
-def department_details(dep_id):
+@app.route('/search_department', methods=['POST'])
+@token_required
+def department_details(data):
     try:
-        conn = conp
-        cursor = conn.cursor(cursors.DictCursor)
-        cursor.execute("SELECT * FROM department WHERE dep_ID = %s", dep_id)
-        depRow = cursor.fetchone()
-        respone = jsonify(depRow)
-        respone.status_code = 200
-        return respone
-    except Exception as e:
-        print(e)
+        json = request.json
+        name = json['dep_name']
+        if name:
+            cursor.execute("SELECT dep_name FROM department WHERE dep_name = %s", name)
+            depRow = cursor.fetchall()
+            if not depRow:
+                respone = jsonify({'message': 'ບໍ່ມີຂໍ້ມູນ'}), 404
+            else:
+                cursor.execute("SELECT dep_name, dep_create_date FROM department WHERE dep_name = %s", name)
+                depRow = cursor.fetchall()
+                respone = jsonify(depRow), 200
+            return respone
+        else:
+            return department()
+    except Exception:
+        return server_error()
 
 @app.route('/update_department', methods=['PUT'])
-def update_department():
+@token_required
+def update_department(data):
     try:
         _json = request.json
         _dep_ID = _json['dep_ID']
         _dep_name = _json['dep_name']
-        _dep_level = _json['dep_level']
-        if _dep_ID and _dep_name and _dep_level and request.method == 'PUT':
-            conn = conp
-            cursor = conn.cursor(cursors.DictCursor)
-            sqlQuery = "UPDATE department SET dep_name = %s, dep_level = %s WHERE dep_ID = %s"
-            bindData = (_dep_name, _dep_level, _dep_ID)
+        if _dep_ID and _dep_name:
+            sqlQuery = "UPDATE department SET dep_name = %s WHERE dep_ID = %s"
+            bindData = (_dep_name, _dep_ID)
             cursor.execute(sqlQuery, bindData)
-            conn.commit()
-            respone = jsonify('Department updated successfully!')
-            respone.status_code = 200
-            return respone
+            conp.commit()
+            respone = jsonify({'message': 'ອັດເດດຂໍ້ມູນສຳເລັດ', 'status':'ok'}), 201
         else:
-            return not_found()
-    except Exception as e:
-        print(e)
-
-@app.route('/delete_department/<string:dep_id>', methods=['DELETE'])
-def delete_department(dep_id):
-    try:
-        conn = conp
-        cursor = conn.cursor()
-        cursor.execute(
-            "DELETE FROM department WHERE dep_ID =%s", (dep_id,))
-        conn.commit()
-        respone = jsonify('Department deleted successfully!')
-        respone.status_code = 200
+            respone = jsonify({'message': 'ກະລຸນາໃສ່ຂໍ້ມູນໃຫ້ຄົບຖ້ວນ'}), 403
         return respone
-    except Exception as e:
-        print(e)
+    except Exception:
+        return server_error()
+
+@app.route('/delete_department', methods=['DELETE'])
+@token_required
+def delete_department(data):
+    try:
+        _json = request.json
+        _dep_name = _json['dep_name']
+        cursor.execute("DELETE FROM department WHERE dep_name =%s", _dep_name)
+        conp.commit()
+        respone = jsonify({'message': 'ລົບຂໍ້ມູນສຳເລັດ', 'status': 'ok'}), 201
+        return respone
+    except Exception:
+        respone = jsonify({'message':'ຂໍ້ມູນມີການໃຊ້ງານບໍ່ສາມາດລົບໄດ້'}), 403
+        return respone
+
+def department_name(data):
+    cursor.execute('SELECT dep_ID FROM department WHERE dep_name = %s', (data, ))
+    dep = cursor.fetchone()
+    dep = dep['dep_ID']
+    return dep
